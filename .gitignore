@@ -1,0 +1,5 @@
+# secrets and tokens
+.
+.env
+.env.*
+!.env.example
