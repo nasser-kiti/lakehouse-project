@@ -1,0 +1,7 @@
+sources:
+    crm:
+        - sample1
+        - sample2
+    erp:
+        - sample1
+        - sample2
