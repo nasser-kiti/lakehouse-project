@@ -1,0 +1,6 @@
+sources:
+  - name: dev
+    schema: bronze
+    tables:
+     - name: crm_cust_info
+     - name: crm_prd_info

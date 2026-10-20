@@ -8,8 +8,12 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "databricks-sdk>=0.47.0",
+    "dbt-core>=1.12.6",
+    "dbt-databricks>=1.10.9",
     "pyspark>=4.2.0",
     "pyyaml>=6.0.3",
+    "sqlfmt>=0.0.3",
 ]
 
 [project.scripts]
