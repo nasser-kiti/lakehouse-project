@@ -8,3 +8,4 @@
 
 # vscode configs
 .vscode/
+.DS_Store

@@ -31,7 +31,8 @@ clean-targets:         # directories to be removed by `dbt clean`
 # files using the `{{ config(...) }}` macro.
 models:
   lakehouse:
-    +schema: bronze
-    +schema: silver
-    +schema: gold
+    silver:
+      +schema: silver
+    gold:
+      +schema: gold
 

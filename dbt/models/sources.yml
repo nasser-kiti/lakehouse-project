@@ -1,6 +1,3 @@
 sources:
-  - name: dev
+  - name: bara_datacamp
     schema: bronze
-    tables:
-     - name: crm_cust_info
-     - name: crm_prd_info
