@@ -1,0 +1,25 @@
+# Contract between the source systems, the landing volume and Bronze.
+# Read by the landing upload (Airflow) and the Bronze load (Lakeflow).
+#
+#   local_dir: where the source drops its files, relative to the repo root
+#   file:      file name exactly as delivered (case-sensitive on Linux and UC volumes)
+#   table:     target table in <catalog>.bronze
+sources:
+  crm:
+    local_dir: data/crm
+    files:
+      - file: cust_info.csv
+        table: crm_cust_info
+      - file: prd_info.csv
+        table: crm_prd_info
+      - file: sales_details.csv
+        table: crm_sales_details
+  erp:
+    local_dir: data/erp
+    files:
+      - file: CUST_AZ12.csv
+        table: erp_cust_az12
+      - file: LOC_A101.csv
+        table: erp_loc_a101
+      - file: PX_CAT_G1V2.csv
+        table: erp_px_cat_g1v2
