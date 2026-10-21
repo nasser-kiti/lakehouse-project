@@ -1,4 +1,3 @@
-# Build context is the repo root. Keep secrets, data and local state out of image layers.
 .git
 .venv
 **/__pycache__
