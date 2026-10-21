@@ -23,6 +23,7 @@ import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
+from dotenv import load_dotenv
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import NotFound
@@ -30,7 +31,12 @@ from databricks.sdk.errors import NotFound
 from lakehouse.utils.logger import get_logger
 from lakehouse.utils.source_config import ConfigManager, SourceConfig
 
+
 logger = get_logger('Landing Layer')
+
+load_dotenv()
+CATALOG = os.getenv("LAKEHOUSE_CATALOG", "bara_datacamp")
+
 
 CONFIG_PATH = Path(__file__).with_name("data_sources.yaml")
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -55,10 +61,9 @@ def sha256_of(data: bytes) -> str:
 
 
 def volume_root() -> str:
-    catalog = os.getenv("LAKEHOUSE_CATALOG", "bara_datacamp")
     schema = os.getenv("LAKEHOUSE_LANDING_SCHEMA", "landing")
     volume = os.getenv("LAKEHOUSE_LANDING_VOLUME", "raw")
-    return f"/Volumes/{catalog}/{schema}/{volume}"
+    return f"/Volumes/{CATALOG}/{schema}/{volume}"
 
 
 class DataLoader:
