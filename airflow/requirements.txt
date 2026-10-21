@@ -1,0 +1,2 @@
+# Airflow itself comes from the base image (pinned in the Dockerfile); list providers only.
+apache-airflow-providers-databricks

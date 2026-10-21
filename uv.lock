@@ -817,20 +817,28 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "databricks-sdk" },
+    { name = "pyyaml" },
+]
+
+[package.dev-dependencies]
+dev = [
     { name = "dbt-core" },
     { name = "dbt-databricks" },
     { name = "pyspark" },
-    { name = "pyyaml" },
     { name = "sqlfmt" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "databricks-sdk", specifier = ">=0.47.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
     { name = "dbt-core", specifier = ">=1.12.6" },
     { name = "dbt-databricks", specifier = ">=1.10.9" },
     { name = "pyspark", specifier = ">=4.2.0" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "sqlfmt", specifier = ">=0.0.3" },
 ]
 

@@ -9,3 +9,6 @@
 # vscode configs
 .vscode/
 .DS_Store
+
+# Airflow runtime state
+airflow/logs/
