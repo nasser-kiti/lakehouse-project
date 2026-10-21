@@ -2,11 +2,17 @@
 
 This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-kiti/warehouse-project-local) as a lakehouse on Databricks, using the Medallion Architecture. Airflow lands source files in an immutable volume, and a Lakeflow job loads them into Bronze and runs the dbt transformations for Silver and Gold.
 
+## Overview
+
 - **Data Architecture**: a lakehouse on **Databricks** and Unity Catalog, organised into landing, Bronze, Silver and Gold layers.
 - **Ingestion**: write-once, checksum-verified landing of source files, orchestrated by **Airflow**.
 - **ELT**: raw data is loaded first, then transformed in the platform with **dbt**.
 - **Orchestration**: Airflow handles getting data into the platform; a **Lakeflow** job (defined as code with Databricks Asset Bundles) runs everything inside it.
 - **Data Quality**: integrity checks before Bronze, and dbt tests that gate each layer.
+
+## Data Architecture
+
+![Data architecture diagram](assets/images/image.png)
 
 ### Specifications
 
@@ -15,11 +21,6 @@ This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-
 - **Reruns are safe**: every stage is idempotent, so retries and backfills never duplicate data.
 - **Data Quality**: data quality issues are resolved in Silver, and tests stop bad data from reaching Gold.
 - **Scope**: latest-state analytics; historisation is not required.
-
-
-## Data Architecture
-
-![Data architecture diagram](assets/images/image.png)
 
 1. **Landing**: an Airflow task uploads the CSV files to a Unity Catalog volume, one write-once folder per source per ingest date, with a checksum manifest written last.
 2. **Hand-off**: Airflow triggers the Lakeflow job by name, passing the ingest date, and waits for it to finish.
@@ -38,20 +39,22 @@ This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-
 
 ---
 
-## Technology Stack
-
-| Area | Tool |
-|------|------|
-| Platform | Databricks (serverless), Unity Catalog, Delta Lake |
-| Ingestion orchestration | Apache Airflow 3.3.2 (Docker Compose, LocalExecutor) |
-| In-platform orchestration | Lakeflow Jobs, deployed with Databricks Asset Bundles |
-| Transformation | dbt-core + dbt-databricks |
-| Language | Python 3.12 everywhere: local, Airflow image and serverless environment version 6 |
-| Packaging | uv (`uv_build` backend), one `lakehouse` wheel used by Airflow and Databricks |
-
----
-
 ## Data Pipeline
+
+### Immutability
+
+Raw data is protected in layers, from who can write to how storage behaves:
+
+| Layer | Control | Status |
+| ------- | --------- | -------- |
+| 1. Access | Only the ingestion service principal can write to the volume; the volume is owned by a group, not a person | Planned (currently a personal account) |
+| 2. Processing | The loader verifies every landed file against its manifest and fails on any discrepancy | ✅ Implemented (`verify_batch`) |
+| 3. Bronze tables | `delta.appendOnly = true` on every Bronze table: `INSERT` and `COPY INTO` work; `UPDATE`, `DELETE` and row-changing `MERGE` are refused | ✅ Implemented (set at table creation in `load_bronze`) |
+| 4. Storage | A bucket retention policy (S3 Object Lock, GCS retention, Azure immutable blobs) prevents changes or deletion for a set period | Requires an external volume; not available on managed storage |
+
+Idempotency (safe reruns) and immutability (unchangeable raw data) are both separate guarantees for the pipeline; it needs both.
+
+Layers 2 and 3 are only as strong as layer 1: a table owner can turn `delta.appendOnly` off again with `ALTER TABLE`. A legitimate deletion (for example a GDPR erasure request) is therefore a deliberate, reviewed operation: turn the flag off, delete, turn it back on.
 
 ### Landing (Ingestion)
 
@@ -87,6 +90,7 @@ This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-
 | Idempotency | `COPY INTO` skips files already loaded into each table | Reruns insert 0 rows (verified: 18,494 then 0) |
 | Column types | Every source column as `STRING` (`inferSchema = false`) | No silent type guessing; typing happens in Silver |
 | Schema | Tables created empty; `mergeSchema` builds columns from the header | No DDL to maintain for six tables |
+| Append-only | `TBLPROPERTIES ('delta.appendOnly' = 'true')` at creation | Bronze rows can be added but never changed or deleted through SQL |
 | Metadata | `_row_hash`, `_ingested_at`, `_source_file`, `_ingest_date` | Dedup, lineage, backfills |
 | Partitioning | None | Tables are a few MB; partitioning under ~1 TB adds small-file overhead |
 | Compute | Serverless, environment version 6 (Python 3.12) | No clusters to manage; same Python as local and Airflow |
@@ -99,20 +103,6 @@ This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-
 - **Done so far**: `crm_cust_info`. One row per `cst_id`; rows without `cst_id` are excluded and reported by a warn-level source test; the latest `cst_create_date` wins, then the latest delivery, then `_row_hash` for determinism. 18,494 Bronze rows → 18,484 customers.
 
 ### Gold (Star Schema): not started
-
----
-
-## Immutability
-
-Landed data is protected in three layers:
-
-| Layer | Control | Status |
-|-------|---------|--------|
-| 1. Access | Only the ingestion service principal can write to the volume; the volume is owned by a group, not a person | Planned (currently a personal account) |
-| 2. Processing | The loader verifies every landed file against its manifest and fails on any discrepancy | ✅ Implemented (`verify_batch`) |
-| 3. Storage | A bucket retention policy (S3 Object Lock, GCS retention, Azure immutable blobs) prevents changes or deletion for a set period | Requires an external volume; not available on managed storage |
-
-Idempotency (safe reruns) and immutability (unchangeable raw data) are separate guarantees, and the pipeline needs both.
 
 ---
 
