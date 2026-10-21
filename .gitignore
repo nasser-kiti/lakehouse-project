@@ -12,3 +12,6 @@
 
 # Airflow runtime state
 airflow/logs/
+
+# build output
+dist/*

@@ -7,3 +7,4 @@ data/
 airflow/logs/
 dbt/target/
 dbt/logs/
+dist/*

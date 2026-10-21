@@ -958,6 +958,15 @@ wheels = [
 ]
 
 [[package]]
+name = "databricks"
+version = "0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/94/acee395ffab7057cb025a3d65e61bf686c09d1c00b41518a0a4de0c0f80d/databricks-0.2.tar.gz", hash = "sha256:f20074914eea742cdc5f0b60db18b2408c62d90b50013adf5614f00a2e042059", size = 734, upload-time = "2018-11-15T17:21:26.562Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/71/3a1f0cb5f5e3060054a48c17281aaf3e75a52e31e602d5e5769f94c16624/databricks-0.2-py2.py3-none-any.whl", hash = "sha256:2d4384b4d1f992ac9c94b0933a61082a61ee6bae5e95a208d1e843216d860adf", size = 1244, upload-time = "2018-11-15T17:21:25.469Z" },
+]
+
+[[package]]
 name = "databricks-sdk"
 version = "0.47.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1825,6 +1834,7 @@ dependencies = [
 dev = [
     { name = "apache-airflow" },
     { name = "apache-airflow-providers-databricks" },
+    { name = "databricks" },
     { name = "dbt-core" },
     { name = "dbt-databricks" },
     { name = "pendulum" },
@@ -1842,6 +1852,7 @@ requires-dist = [
 dev = [
     { name = "apache-airflow", specifier = ">=3.3.0" },
     { name = "apache-airflow-providers-databricks" },
+    { name = "databricks", specifier = ">=0.2" },
     { name = "dbt-core", specifier = ">=1.12.6" },
     { name = "dbt-databricks", specifier = ">=1.10.9" },
     { name = "pendulum", specifier = ">=2.1.2" },

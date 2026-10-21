@@ -1,0 +1,23 @@
+resources:
+  jobs:
+    lakehouse_pipeline:
+      name: lakehouse_pipeline
+
+      parameters:
+        - name: ingest_date
+          default: ""
+
+      tasks:
+        - task_key: load_bronze
+          environment_key: default
+          python_wheel_task:
+            package_name: lakehouse
+            entry_point: load-bronze
+            parameters: ["--ingest-date", "{{job.parameters.ingest_date}}"]
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "6"
+            dependencies:
+              - ../dist/*.whl

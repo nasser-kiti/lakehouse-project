@@ -15,14 +15,17 @@ dependencies = [
 [dependency-groups]
 dev = [
     "dbt-core>=1.12.6",
+    "databricks>=0.2",
     "dbt-databricks>=1.10.9",
     "pyspark>=4.2.0",
     "sqlfmt>=0.0.3",
     "pendulum>=2.1.2",
     "apache-airflow>=3.3.0",
-    "apache-airflow-providers-databricks",
+    "apache-airflow-providers-databricks"
 ]
 
+[project.scripts]
+load-bronze = "lakehouse.bronze.load_bronze:main"
 
 [build-system]
 requires = ["uv_build>=0.12.12,<0.13.0"]
