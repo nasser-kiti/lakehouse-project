@@ -16,7 +16,7 @@ import sys
 from pyspark.sql import SparkSession
 
 from lakehouse.utils.source_config import ConfigManager
-from lakehouse.landing.load_volume import CATALOG, CONFIG_PATH, MANIFEST_NAME, volume_root
+from lakehouse.landing.load_volume import CATALOG, CONFIG_PATH, MANIFEST_NAME, ImmutableBatchError, sha256_of, volume_root
 from lakehouse.utils.logger import get_logger
 
 logger = get_logger('Bronze Layer')
@@ -35,6 +35,17 @@ class BronzeLayer:
                 f"No manifest at {manifest_path}: the batch is missing or only partly landed."
             )
         return json.loads(manifest_path.read_text())
+
+    def verify_batch(self, batch_dir: str, manifest: dict) -> bool:
+        """Fail if a landed file is missing or no longer matches the checksum recorded at landing."""
+        for f in manifest["files"]:
+            landed = Path(batch_dir) / f["file"]
+            if not landed.is_file():
+                raise ImmutableBatchError(f"{landed} is in the manifest but missing from the volume.")
+            if sha256_of(landed.read_bytes()) != f["sha256"]:
+                raise ImmutableBatchError(
+                    f"{landed} changed after landing: its checksum no longer matches the manifest.")
+        return False
 
     def copy_into_sql(self, table_fqn: str, batch_dir: str, file: str, ingest_date: date) -> str:
         return f"""COPY INTO {table_fqn}
@@ -59,7 +70,9 @@ class BronzeLayer:
         batches = []
         for source in self.sources:
             batch_dir = f"{self.root}/{source.name}/ingest_date={ingest_date.isoformat()}"
-            batches.append((batch_dir, self.read_manifest(batch_dir)))
+            manifest = self.read_manifest(batch_dir)
+            self.verify_batch(batch_dir, manifest)
+            batches.append((batch_dir, manifest))
 
         results = []
         for batch_dir, manifest in batches:
