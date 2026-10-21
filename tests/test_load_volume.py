@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 from databricks.sdk.errors import AlreadyExists, NotFound
 
-from lakehouse.ingest.load_volume import MANIFEST_NAME, DataLoader, ImmutableBatchError
+from lakehouse.landing.load_volume import MANIFEST_NAME, DataLoader, ImmutableBatchError
 
 ROOT = "/Volumes/test_catalog/landing/raw"
 DAY = date(2026, 10, 20)
@@ -21,7 +21,7 @@ BATCH = f"{ROOT}/crm/ingest_date=2026-10-20"
 CONFIG = """
 sources:
   crm:
-    local_dir: data/crm
+    local_dir: crm
     files:
       - file: cust_info.csv
         table: crm_cust_info
@@ -67,7 +67,7 @@ class LoadVolumeTests(unittest.TestCase):
 
     def loader(self) -> DataLoader:
         return DataLoader(client=SimpleNamespace(files=self.files), root=ROOT,
-                          config_path=self.repo / "sources.yaml", repo_root=self.repo)
+                          config_path=self.repo / "sources.yaml", source_dir=self.repo / "data")
 
     def test_first_run_lands_all_files_and_writes_manifest_last(self):
         [result] = self.loader().upload_to_volume(DAY)

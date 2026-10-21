@@ -23,7 +23,6 @@ import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from dotenv import load_dotenv
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import NotFound
@@ -34,12 +33,13 @@ from lakehouse.utils.source_config import ConfigManager, SourceConfig
 
 logger = get_logger('Landing Layer')
 
-load_dotenv()
 CATALOG = os.getenv("LAKEHOUSE_CATALOG", "bara_datacamp")
 
 
 CONFIG_PATH = Path(__file__).with_name("data_sources.yaml")
-REPO_ROOT = Path(__file__).resolve().parents[3]
+# Where the source systems drop their files. Defaults to ./data when run from the repo root;
+# the Airflow container sets it to the mounted drop zone.
+SOURCE_DIR = Path(os.getenv("LAKEHOUSE_SOURCE_DIR", "data"))
 MANIFEST_NAME = "_manifest.json"
 
 
@@ -68,13 +68,13 @@ def volume_root() -> str:
 
 class DataLoader:
     def __init__(self, client=None, root: str | None = None,
-                 config_path: Path = CONFIG_PATH, repo_root: Path = REPO_ROOT):
+                 config_path: Path = CONFIG_PATH, source_dir: Path = SOURCE_DIR):
         # WorkspaceClient reads DATABRICKS_HOST / DATABRICKS_TOKEN from the environment.
         # A fake client can be injected for tests.
         self.client = client or WorkspaceClient()
         self.root = root or volume_root()
         self.config_path = config_path
-        self.repo_root = Path(repo_root)
+        self.source_dir = Path(source_dir)
         self.sources = self.get_sources()
 
     def get_sources(self) -> list[SourceConfig]:
@@ -125,7 +125,7 @@ class DataLoader:
 
         self.client.files.create_directory(batch_dir)  # no-op if it already exists
         for f in to_upload:
-            logger.info(f"Uploading {f.path.relative_to(self.repo_root)} -> {batch_dir}/{f.file} ({f.bytes:,} bytes)")
+            logger.info(f"Uploading {f.path.relative_to(self.source_dir)} -> {batch_dir}/{f.file} ({f.bytes:,} bytes)")
             with f.path.open("rb") as fh:
                 self.client.files.upload(f"{batch_dir}/{f.file}", fh, overwrite=False)
         for f in skipped:
@@ -139,7 +139,7 @@ class DataLoader:
     def _describe_local_files(self, source: SourceConfig) -> list[LocalFile]:
         described = []
         for f in source.files:
-            path = self.repo_root / source.local_dir / f.file
+            path = self.source_dir / source.local_dir / f.file
             if not path.is_file():
                 raise FileNotFoundError(f"Source file not found: {path}")
             data = path.read_bytes()
