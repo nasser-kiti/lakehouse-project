@@ -1,0 +1,17 @@
+bundle:
+  name: lakehouse
+
+include:
+  - resources/*.yml
+
+artifacts:
+  lakehouse_wheel:
+    type: whl
+    build: uv build --wheel
+    path: .
+
+targets:
+  dev:
+    default: true
+    workspace:
+      host: https://dbc-402075c9-dd7d.cloud.databricks.com

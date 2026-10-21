@@ -5,3 +5,13 @@
 
 # Python cache files
 **/__pycache__/
+
+# vscode configs
+.vscode/
+.DS_Store
+
+# Airflow runtime state
+airflow/logs/
+
+# build output
+dist/*

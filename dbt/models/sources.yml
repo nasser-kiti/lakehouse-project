@@ -1,0 +1,3 @@
+sources:
+  - name: bara_datacamp
+    schema: bronze

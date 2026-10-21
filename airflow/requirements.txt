@@ -1,0 +1,3 @@
+# Airflow itself comes from the base image (pinned in the Dockerfile); list providers only.
+# Pin this after the first build: docker compose run --rm airflow-cli pip show apache-airflow-providers-databricks
+apache-airflow-providers-databricks
