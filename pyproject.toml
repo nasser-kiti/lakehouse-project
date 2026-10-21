@@ -18,6 +18,9 @@ dev = [
     "dbt-databricks>=1.10.9",
     "pyspark>=4.2.0",
     "sqlfmt>=0.0.3",
+    "pendulum>=2.1.2",
+    "apache-airflow>=3.3.0",
+    "apache-airflow-providers-databricks",
 ]
 
 
