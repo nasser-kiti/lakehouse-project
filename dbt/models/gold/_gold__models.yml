@@ -1,0 +1,47 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: >
+      One row per customer. CRM is the master record; ERP provides birth date and country,
+      and gender only when CRM has none. ERP customers missing from CRM are excluded.
+      No unknown member: every sale matches a customer (enforced by the fact's relationships test).
+    columns:
+      - name: customer_sk
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: gender
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Male', 'Female', 'n/a']
+
+  - name: dim_products
+    description: >
+      One row per product version, valid from valid_from to valid_to (inclusive). The earliest
+      version of each product is assumed to apply from 1990-01-01. Includes an unknown member
+      (product_sk = -1) for sales that match no version.
+    columns:
+      - name: product_sk
+        data_tests: [unique, not_null]
+
+  - name: fact_sales
+    description: >
+      One row per order line. Each sale is joined to the product version valid on its order date;
+      sales without a valid order date point to the unknown product (-1).
+    columns:
+      - name: customer_sk
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_sk
+      - name: product_sk
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_sk

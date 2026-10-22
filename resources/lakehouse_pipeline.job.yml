@@ -28,6 +28,19 @@ resources:
             commands:
               - "dbt build --select source:bronze path:models/silver"
 
+        - task_key: load_gold
+          depends_on:
+            - task_key: load_silver
+          environment_key: dbt
+          dbt_task:
+            project_directory: ../dbt
+            source: WORKSPACE
+            warehouse_id: ${var.warehouse_id}
+            catalog: bara_datacamp
+            schema: gold
+            commands:
+              - "dbt build --select path:models/gold"
+
       environments:
         - environment_key: default
           spec:
