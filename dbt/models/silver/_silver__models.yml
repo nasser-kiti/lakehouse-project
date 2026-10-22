@@ -1,0 +1,149 @@
+version: 2
+
+models:
+  - name: crm_cust_info
+    description: >
+      One row per customer (cst_id). Rows without cst_id are excluded (see the warn
+      test on the source). When a customer appears more than once, the record with the
+      latest cst_create_date wins; ties go to the latest delivery (_ingested_at), then
+      to _row_hash for determinism. Assumption: cst_create_date is the best available
+      recency signal, since the source has no updated_at.
+    columns:
+      - name: customer_id
+        data_tests:
+          - unique
+          - not_null
+      - name: marital_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Married', 'Single', 'n/a']
+      - name: gender
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Male', 'Female', 'n/a']
+  - name: crm_prd_info
+    description: >
+      One row per product version (prd_id, unique and not null).
+      A product (product_key) can have several versions.
+      Versions of a product do not overlap: each version ends the day before the next one starts, and only the latest version has a null end_date.
+      The source prd_end_dt is ignored, because 200 of 397 rows end before they start; end dates are derived from the start date of the next version.
+    columns:
+      - name: product_id
+        data_tests:
+          - unique
+          - not_null
+      - name: category_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('erp_px_cat_g1v2')
+                field: category_id
+              config:
+                severity: warn
+      - name: product_name
+        data_tests:
+          - not_null
+      - name: product_line
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Mountain', 'Road', 'Other Sales', 'Touring', 'n/a']
+  - name: crm_sales_details
+    description: >
+      One row per order line. Latest delivery wins when multiple rows exist for the same order line.
+    columns:
+      - name: order_number
+        data_tests:
+          - not_null
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('crm_cust_info')
+                field: customer_id
+              config:
+                severity: warn
+      - name: product_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('crm_prd_info')
+                field: product_key
+              config:
+                severity: warn
+      - name: order_date
+        description: Null when the source date is 0, malformed, or before 1990-01-01 (19 rows today).
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: shipping_date
+        data_tests:
+          - not_null
+      - name: due_date
+        data_tests:
+          - not_null
+  - name: erp_cust_az12
+    description: >
+      One row per customer from the ERP system: birth date and gender.
+      customer_key matches crm_cust_info.customer_key ('NAS' prefix removed).
+      Birth dates in the future are placeholders and set to null.
+    columns:
+      - name: customer_key
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('crm_cust_info')
+                field: customer_key
+              config:
+                severity: warn
+      - name: gender
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Male', 'Female', 'n/a']
+  - name: erp_loc_a101
+    description: >
+      One row per customer with their country. customer_key matches
+      crm_cust_info.customer_key (hyphens removed). Country codes are mapped to names;
+      blanks become 'n/a'.
+    columns:
+      - name: customer_key
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('crm_cust_info')
+                field: customer_key
+              config:
+                severity: warn
+      - name: country
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Australia', 'United States', 'United Kingdom', 'France', 'Canada', 'Germany', 'n/a']
+  - name: erp_px_cat_g1v2
+    description: >
+      One row per product category from the ERP system. category_id matches
+      crm_prd_info.category_id.
+    columns:
+      - name: category_id
+        data_tests:
+          - unique
+          - not_null
+      - name: category
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['Accessories', 'Bikes', 'Clothing', 'Components']
+      - name: maintenance_required
+        data_tests:
+          - not_null

@@ -15,9 +15,27 @@ resources:
             entry_point: load-bronze
             parameters: ["--ingest-date", "{{job.parameters.ingest_date}}"]
 
+        - task_key: load_silver
+          depends_on:
+            - task_key: load_bronze
+          environment_key: dbt
+          dbt_task:
+            project_directory: ../dbt
+            source: WORKSPACE
+            warehouse_id: "${var.warehouse_id}"
+            catalog: bara_datacamp
+            schema: silver
+            commands:
+              - "dbt build --select source:bronze path:models/silver"
+
       environments:
         - environment_key: default
           spec:
             environment_version: "6"
             dependencies:
               - ../dist/*.whl
+        - environment_key: dbt
+          spec:
+            environment_version: "6"
+            dependencies:
+              - dbt-databricks>=1.10.9,<2.0

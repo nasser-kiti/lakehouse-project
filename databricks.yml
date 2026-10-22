@@ -15,3 +15,8 @@ targets:
     default: true
     workspace:
       host: https://dbc-402075c9-dd7d.cloud.databricks.com
+
+variables:
+  warehouse_id:
+    description: SQL warehouse that runs the dbt tasks
+    default: 9790eb3fce404e92

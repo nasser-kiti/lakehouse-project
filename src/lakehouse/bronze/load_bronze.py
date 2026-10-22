@@ -78,7 +78,9 @@ class BronzeLayer:
         for batch_dir, manifest in batches:
             for f in manifest["files"]:
                 table_fqn = f"{CATALOG}.bronze.{f['table']}"
-                spark.sql(f"CREATE TABLE IF NOT EXISTS {table_fqn}")
+                spark.sql(f"CREATE TABLE IF NOT EXISTS {table_fqn} "
+                          "TBLPROPERTIES ('delta.appendOnly' = 'true')"
+                          )
 
                 row = spark.sql(self.copy_into_sql(table_fqn, batch_dir, f["file"], ingest_date)).first()
                 if row is None:

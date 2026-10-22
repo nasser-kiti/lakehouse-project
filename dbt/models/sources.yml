@@ -1,3 +1,22 @@
+version: 2
+
 sources:
-  - name: bara_datacamp
+  - name: bronze
+    database: bara_datacamp
     schema: bronze
+    description: >
+      Raw data loaded by load_bronze (COPY INTO) from the immutable landing volume.
+      Every source column is STRING; typing happens in Silver.
+    tables:
+      - name: crm_cust_info
+        columns:
+          - name: cst_id
+            data_tests:
+              - not_null:
+                  config:
+                    severity: warn
+      - name: crm_prd_info
+      - name: crm_sales_details
+      - name: erp_cust_az12
+      - name: erp_loc_a101
+      - name: erp_px_cat_g1v2
