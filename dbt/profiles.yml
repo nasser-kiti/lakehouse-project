@@ -5,7 +5,7 @@ lakehouse:
       host: "{{ env_var('DATABRICKS_HOST') }}"
       http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
       schema: dev_nasser
-      threads: 1
+      threads: 3
       token: "{{ env_var('DATABRICKS_TOKEN') }}"
       type: databricks
   target: dev

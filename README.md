@@ -26,16 +26,7 @@ This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-
 2. **Hand-off**: Airflow triggers the Lakeflow job by name, passing the ingest date, and waits for it to finish.
 3. **Bronze**: the job verifies each manifest, then loads the files into Delta tables with `COPY INTO`, unchanged apart from ingestion metadata.
 4. **Silver**: dbt deduplicates, trims, standardises and types the data. Tests must pass before Gold builds.
-5. **Gold**: dbt models a star schema with business rules applied (in progress).
-
-### Unity Catalog layout
-
-| Object | Purpose |
-|--------|---------|
-| `catalog.landing.raw` (volume) | Immutable landed files and manifests |
-| `catalog.bronze` | Raw Delta tables, one per source file |
-| `catalog.silver` | Cleaned, deduplicated, typed tables (dbt) |
-| `catalog.gold` | Star schema for reporting (dbt) |
+5. **Gold**: dbt models a star schema (views): point-in-time products, CRM-mastered customers.
 
 ---
 
@@ -52,23 +43,27 @@ Raw data is protected in layers, from who can write to how storage behaves:
 | 3. Bronze tables | `delta.appendOnly = true` on every Bronze table: `INSERT` and `COPY INTO` work; `UPDATE`, `DELETE` and row-changing `MERGE` are refused | ✅ Implemented (set at table creation in `load_bronze`) |
 | 4. Storage | A bucket retention policy (S3 Object Lock, GCS retention, Azure immutable blobs) prevents changes or deletion for a set period | Requires an external volume; not available on managed storage |
 
-Idempotency (safe reruns) and immutability (unchangeable raw data) are both separate guarantees for the pipeline; it needs both.
+Idempotency (safe reruns) and immutability (unchangeable raw data) are both separate guarantees needed by the pipeline.
 
-Layers 2 and 3 are only as strong as layer 1: a table owner can turn `delta.appendOnly` off again with `ALTER TABLE`. A legitimate deletion (for example a GDPR erasure request) is therefore a deliberate, reviewed operation: turn the flag off, delete, turn it back on.
 
 ### Landing (Ingestion)
 
-- **Purpose**: move source files into the platform without changing them, and record exactly what arrived.
+- **Purpose**: move source files into the platform without changing them, and record what arrived.
 - **Code**: `src/lakehouse/landing/load_volume.py`, run by the `land_files` task in `airflow/dags/lakehouse_ingest.py`.
-See `assets/docs/arch_logic_landing.md` for the architectural decisions behind the Landing layer.
+- **Architectural decisions**: [Landing layer architectural decisions](assets/docs/arch_logic_landing.md) for details.
+
+```bash
+uv run python -m unittest discover tests
+```
+
+Tests use in-memory and temp-folder fakes, so they need no Databricks access.
 
 ### Bronze (Raw Tables)
 
-- **Purpose**: load landed files into Delta tables exactly as delivered, with enough metadata to trace every row to its file.
 - **Code**: `src/lakehouse/bronze/load_bronze.py`, run as the `load_bronze` wheel task in `resources/lakehouse_pipeline.job.yml`.
-See `assets/docs/arch_logic_bronze.md` for the architectural decisions behind the Bronze layer.
+- **Architectural decisions**: [Bronze layer architectural decisions](assets/docs/arch_logic_bronze.md) for details.
 
-**Idempotency scope (tested).** Each layer is idempotent within its own scope:
+**Idempotency scope** Each layer is idempotent within its own scope:
 
 | Mechanism | Idempotent per | Same date again | Identical file on a new date |
 |-----------|----------------|-----------------|------------------------------|
@@ -82,10 +77,9 @@ Trade-off: with daily full-snapshot deliveries, Bronze grows by one full copy pe
 
 ### Silver (Cleansing & Standardisation)
 
-- **Purpose**: one clean, typed, deduplicated row per business entity.
-- **Code**: `dbt/models/silver/{crm,erp}/`, run as the `load_silver` dbt task (`dbt build --select source:bronze path:models/silver`) after `load_bronze`. `dbt build` runs each model's tests, so a failing Silver test stops the job before Gold.
-- **Ingest date**: not passed to Silver. It builds from whatever Bronze holds; dedup picks the right rows.
-See `assets/docs/arch_logic_silver.md` for the architectural decisions behind the Silver layer.
+- **Code**: `dbt/models/silver/{crm,erp}/`, run as the `load_silver` dbt task (`dbt build --select source:bronze path:models/silver`) after `load_bronze`.
+  `dbt build` runs each model's tests, so a failing Silver test stops the job before Gold.
+- **Architectural decisions**: [Silver layer architectural decisions](assets/docs/arch_logic_silver.md)
 
 | Model | Grain | Key rules | Rows |
 |-------|-------|-----------|------|
@@ -103,23 +97,20 @@ See `assets/docs/arch_logic_silver.md` for the architectural decisions behind th
 - 19 sales rows without a valid `order_date`.
 - Product category `CO_PE` has no match in `erp_px_cat_g1v2`; Gold keeps those products with a left join and `'n/a'` category.
 
-### Gold (Star Schema): not started
+### Gold (Star Schema)
 
-See `assets/docs/arch_logic_gold.md` for the architectural decisions behind the Gold layer.
+- **Code**: `dbt/models/gold/`, run as the `load_gold` dbt task (`dbt build --select path:models/gold`) after `load_silver`.
+- **Architectural decisions**: [Gold layer architectural decisions](assets/docs/arch_logic_gold.md)
+
+| Model | Grain | Key | Notes | Expected rows |
+|-------|-------|-----|-------|---------------|
+| `dim_customers` | One row per customer | `customer_sk = xxhash64(customer_id)` | CRM master; ERP birth date, country, and gender fallback | 18,484 |
+| `dim_products` | One row per product version | `product_sk = xxhash64(product_id)` | `valid_from` / `valid_to` for point-in-time joins; unknown member `-1` | 398 (397 + unknown) |
+| `fact_sales` | One row per order line | `order_number` + `product_sk` | Product version valid on the order date; 19 sales without a valid date use the unknown product | 60,398 |
+
+**Known gap**: Gold views read Silver tables directly, so data that fails a Silver test is visible through Gold until fixed (the job fails and alerts).
 
 ---
-
-## Testing
-
-```bash
-uv run python -m unittest discover tests
-```
-
-- **Landing** (`tests/test_load_volume.py`): a rerun does nothing, a changed file fails, a retry resumes a partial batch, a conflict uploads nothing, a correction lands under a new date.
-- **Bronze** (`tests/test_load_bronze.py`): a changed or deleted file fails verification, and a tampered or missing batch in one source loads nothing for any source.
-- **dbt**: source tests, model tests (`unique`, `not_null`, `accepted_values`), and a test that reconciles Silver row counts against Bronze.
-
-Tests use in-memory and temp-folder fakes, so they need no Databricks access.
 
 ### Useful Links
 
