@@ -87,7 +87,7 @@ Layers 2 and 3 are only as strong as layer 1: a table owner can turn `delta.appe
 | Integrity | Re-check every file's SHA-256 against the manifest before loading | Any change after landing stops the run before Bronze |
 | All-or-nothing | All manifests are verified before any `COPY INTO` | Bronze never holds half a day |
 | Load method | `COPY INTO` with explicit `FILES = (...)` | SQL-native, tracks loaded files, loads only files listed in the manifest |
-| Idempotency | `COPY INTO` skips files already loaded into each table | Reruns insert 0 rows (verified: 18,494 then 0) |
+| Idempotency | `COPY INTO` skips file paths already loaded into each table | Reruns of the same ingest date insert 0 rows (verified: 18,494 then 0) |
 | Column types | Every source column as `STRING` (`inferSchema = false`) | No silent type guessing; typing happens in Silver |
 | Schema | Tables created empty; `mergeSchema` builds columns from the header | No DDL to maintain for six tables |
 | Append-only | `TBLPROPERTIES ('delta.appendOnly' = 'true')` at creation | Bronze rows can be added but never changed or deleted through SQL |
@@ -96,11 +96,49 @@ Layers 2 and 3 are only as strong as layer 1: a table owner can turn `delta.appe
 | Compute | Serverless, environment version 6 (Python 3.12) | No clusters to manage; same Python as local and Airflow |
 | Deployment | Asset Bundle builds and deploys the wheel | The job is defined in the repo, not in the UI |
 
-### Silver (Cleansing & Standardisation): in progress
+**Idempotency scope (tested).** Each layer is idempotent within its own scope:
+
+| Mechanism | Idempotent per | Same date again | Identical file on a new date |
+|-----------|----------------|-----------------|------------------------------|
+| Manifest + checksums (landing) | Ingest date | Skipped | Landed again (new folder) |
+| `COPY INTO` (Bronze) | File path | 0 rows inserted | Loaded again (new path) |
+| Key-based dedup (Silver) | Business key | No change | No change |
+
+Verified by landing the same files for 2026-10-21 and 2026-10-22: Bronze doubled (`crm_cust_info`: 36,988 rows, 18,494 distinct `_row_hash`) while Silver stayed at 18,484 customers. Bronze faithfully records that the source sent the same content twice; Silver turns it into one correct current state.
+
+Trade-off: with daily full-snapshot deliveries, Bronze grows by one full copy per day (cents per month at this volume). The planned fix, once the DAG runs on a schedule, is to skip files at landing whose checksum matches the previous batch and record them as `unchanged` in the manifest.
+
+### Silver (Cleansing & Standardisation)
 
 - **Purpose**: one clean, typed, deduplicated row per business entity.
-- **Code**: `dbt/models/silver/`, built with `dbt build` so a failing test stops downstream models.
-- **Done so far**: `crm_cust_info`. One row per `cst_id`; rows without `cst_id` are excluded and reported by a warn-level source test; the latest `cst_create_date` wins, then the latest delivery, then `_row_hash` for determinism. 18,494 Bronze rows → 18,484 customers.
+- **Code**: `dbt/models/silver/{crm,erp}/`, run as the `load_silver` dbt task (`dbt build --select source:bronze path:models/silver`) after `load_bronze`. `dbt build` runs each model's tests, so a failing Silver test stops the job before Gold.
+- **Ingest date**: not passed to Silver. It builds from whatever Bronze holds; dedup picks the right rows.
+
+| Decision | Choice | Why |
+|----------|--------|-----|
+| Dedup | Every model keeps one row per business key; the latest delivery (`_ingested_at`) wins, except `crm_cust_info`, where the latest `cst_create_date` wins first; `_row_hash` breaks ties | Bronze is append-only, so the same row can arrive in several deliveries |
+| Typing | Cast once in a CTE; `try_to_date` for dates; `cast` (not `try_cast`) for keys | Bad dates become null; a bad key fails the build loudly |
+| Money | `decimal(18,2)` | `int` drops cents, `float` rounds |
+| Unknown values | `'n/a'` for unmapped codes and blanks | One convention across all models |
+| Metadata | `_source_file`, `_ingest_date` kept | Lineage from Silver back to the landed file |
+| Materialisation | Tables | Small data rebuilds in seconds; incremental models would add complexity with no benefit |
+| Schemas | `generate_schema_name` writes to exactly `silver` | One environment; prefixing dev schemas waits for a second environment |
+
+| Model | Grain | Key rules | Rows |
+|-------|-------|-----------|------|
+| `crm_cust_info` | One row per customer | Rows without `cst_id` excluded (warn test on source); latest `cst_create_date` wins; names trimmed, codes mapped (`M` → `Married`/`Male`) | 18,484 |
+| `crm_prd_info` | One row per product version | `category_id` / `product_key` split from `prd_key`; source end dates ignored (200 of 397 end before they start); `end_date` = next version's start − 1 day, latest version open | 397 |
+| `crm_sales_details` | One row per order line | `yyyyMMdd` dates parsed, invalid or pre-1990 dates null (19); price made positive or derived from sales; `order_total` = quantity × price | 60,398 |
+| `erp_cust_az12` | One row per customer | `NAS` prefix stripped so `customer_key` matches CRM; future birth dates (16 placeholders like 9999-11-20) set to null | 18,484 |
+| `erp_loc_a101` | One row per customer | Hyphens stripped from the key; country codes mapped (`US`/`USA`, `DE`); blanks `'n/a'` | 18,484 |
+| `erp_px_cat_g1v2` | One row per category | Trimmed; `maintenance` as a boolean | 37 |
+
+**Tests**: `unique` + `not_null` on every grain key; `accepted_values` on every mapped column (a missing mapping fails the build instead of leaking a raw code); singular tests for business rules (one open product version, valid date ranges, positive amounts, order before ship before due, one row per order line, Silver-to-Bronze reconciliation); `relationships` between models at `warn` severity.
+
+**Known warnings** (reported on every run, by design):
+- 4 Bronze `crm_cust_info` rows without `cst_id`.
+- 19 sales rows without a valid `order_date`.
+- Product category `CO_PE` has no match in `erp_px_cat_g1v2`; Gold keeps those products with a left join and `'n/a'` category.
 
 ### Gold (Star Schema): not started
 
