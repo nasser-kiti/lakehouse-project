@@ -60,41 +60,13 @@ Layers 2 and 3 are only as strong as layer 1: a table owner can turn `delta.appe
 
 - **Purpose**: move source files into the platform without changing them, and record exactly what arrived.
 - **Code**: `src/lakehouse/landing/load_volume.py`, run by the `land_files` task in `airflow/dags/lakehouse_ingest.py`.
-
-| Decision | Choice | Why |
-|----------|--------|-----|
-| Landing target | Unity Catalog volume, `<source>/ingest_date=YYYY-MM-DD/` | Raw files stay replayable and governed by the catalog |
-| Source contract | `data_sources.yaml` maps each file to its Bronze table | Adding a source is a config change, shared by landing and Bronze |
-| Batch date | Airflow's logical date (`{{ ds }}`), never the clock | Reruns and backfills land in the right folder |
-| Write-once | `overwrite=False`, plus a check of every file before uploading | A conflict fails the whole batch before anything is written |
-| Retries | Skip files already landed with the same SHA-256 | A retry resumes a half-finished batch instead of duplicating it |
-| Completion signal | `_manifest.json` (file, table, SHA-256, size) written last | Downstream never reads a half-landed batch |
-| Corrections | A corrected file lands under a new ingest date | History is never rewritten |
-| Failure handling | Checksum conflicts raise `AirflowFailException` (no retry) | Retrying can't fix a conflict; it only delays the alert |
-| Deployment | Package installed in the Airflow image; DAGs mounted for local editing only | The image that runs is the image that was built, as in production |
-| Executor | LocalExecutor | One machine and two tasks; Celery would add infrastructure with no benefit |
-| Schedule | Manual trigger while building | Static CSVs would land identical batches every day |
+See `assets/docs/arch_logic_landing.md` for the architectural decisions behind the Landing layer.
 
 ### Bronze (Raw Tables)
 
 - **Purpose**: load landed files into Delta tables exactly as delivered, with enough metadata to trace every row to its file.
 - **Code**: `src/lakehouse/bronze/load_bronze.py`, run as the `load_bronze` wheel task in `resources/lakehouse_pipeline.job.yml`.
-
-| Decision | Choice | Why |
-|----------|--------|-----|
-| Trigger | Airflow passes `ingest_date` as a job parameter | The date flows end to end unchanged |
-| Missing manifest | Fail the job | Airflow only triggers after landing succeeds, so a missing manifest is a real error |
-| Integrity | Re-check every file's SHA-256 against the manifest before loading | Any change after landing stops the run before Bronze |
-| All-or-nothing | All manifests are verified before any `COPY INTO` | Bronze never holds half a day |
-| Load method | `COPY INTO` with explicit `FILES = (...)` | SQL-native, tracks loaded files, loads only files listed in the manifest |
-| Idempotency | `COPY INTO` skips file paths already loaded into each table | Reruns of the same ingest date insert 0 rows (verified: 18,494 then 0) |
-| Column types | Every source column as `STRING` (`inferSchema = false`) | No silent type guessing; typing happens in Silver |
-| Schema | Tables created empty; `mergeSchema` builds columns from the header | No DDL to maintain for six tables |
-| Append-only | `TBLPROPERTIES ('delta.appendOnly' = 'true')` at creation | Bronze rows can be added but never changed or deleted through SQL |
-| Metadata | `_row_hash`, `_ingested_at`, `_source_file`, `_ingest_date` | Dedup, lineage, backfills |
-| Partitioning | None | Tables are a few MB; partitioning under ~1 TB adds small-file overhead |
-| Compute | Serverless, environment version 6 (Python 3.12) | No clusters to manage; same Python as local and Airflow |
-| Deployment | Asset Bundle builds and deploys the wheel | The job is defined in the repo, not in the UI |
+See `assets/docs/arch_logic_bronze.md` for the architectural decisions behind the Bronze layer.
 
 **Idempotency scope (tested).** Each layer is idempotent within its own scope:
 
@@ -113,16 +85,7 @@ Trade-off: with daily full-snapshot deliveries, Bronze grows by one full copy pe
 - **Purpose**: one clean, typed, deduplicated row per business entity.
 - **Code**: `dbt/models/silver/{crm,erp}/`, run as the `load_silver` dbt task (`dbt build --select source:bronze path:models/silver`) after `load_bronze`. `dbt build` runs each model's tests, so a failing Silver test stops the job before Gold.
 - **Ingest date**: not passed to Silver. It builds from whatever Bronze holds; dedup picks the right rows.
-
-| Decision | Choice | Why |
-|----------|--------|-----|
-| Dedup | Every model keeps one row per business key; the latest delivery (`_ingested_at`) wins, except `crm_cust_info`, where the latest `cst_create_date` wins first; `_row_hash` breaks ties | Bronze is append-only, so the same row can arrive in several deliveries |
-| Typing | Cast once in a CTE; `try_to_date` for dates; `cast` (not `try_cast`) for keys | Bad dates become null; a bad key fails the build loudly |
-| Money | `decimal(18,2)` | `int` drops cents, `float` rounds |
-| Unknown values | `'n/a'` for unmapped codes and blanks | One convention across all models |
-| Metadata | `_source_file`, `_ingest_date` kept | Lineage from Silver back to the landed file |
-| Materialisation | Tables | Small data rebuilds in seconds; incremental models would add complexity with no benefit |
-| Schemas | `generate_schema_name` writes to exactly `silver` | One environment; prefixing dev schemas waits for a second environment |
+See `assets/docs/arch_logic_silver.md` for the architectural decisions behind the Silver layer.
 
 | Model | Grain | Key rules | Rows |
 |-------|-------|-----------|------|
@@ -141,6 +104,8 @@ Trade-off: with daily full-snapshot deliveries, Bronze grows by one full copy pe
 - Product category `CO_PE` has no match in `erp_px_cat_g1v2`; Gold keeps those products with a left join and `'n/a'` category.
 
 ### Gold (Star Schema): not started
+
+See `assets/docs/arch_logic_gold.md` for the architectural decisions behind the Gold layer.
 
 ---
 
