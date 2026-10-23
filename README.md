@@ -1,10 +1,11 @@
 # Lakehouse Project (Databricks)
 
 This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-kiti/warehouse-project-local) as a lakehouse on Databricks, using the Medallion Architecture.
-
-An Airflow task uploads the CSV files to a Unity Catalog volume, one write-once folder per source per ingest date, with a checksum manifest written last, then triggers the Lakeflow job by name, passing the ingest date, and waits for it to finish. The Lakeflow job verifies each manifest, then loads the files into Bronze with `COPY INTO`, unchanged apart from ingestion metadata. dbt transforms the data and runs tests on Silver before building the Gold layer. The Gold layer is a star schema (views) with point-in-time products and CRM-mastered customers.
+**Stack**: Python, uv, Databricks(Unity Catalog, Delta Lake, Lakeflow Jobs, Asset Bundles), Airflow 3, dbt
 
 ## Overview
+
+An Airflow task uploads the CSV files to a Unity Catalog volume, one write-once folder per source per ingest date, with a checksum manifest written last, then triggers the Lakeflow job by name, passing the ingest date, and waits for it to finish. The Lakeflow job verifies each manifest, then loads the files into Bronze with `COPY INTO`, unchanged apart from ingestion metadata. dbt transforms the data and runs tests on Silver before building the Gold layer. The Gold layer is a star schema (views) with point-in-time products and CRM-mastered customers.
 
 - **Data Architecture**: a lakehouse on **Databricks** and Unity Catalog, organised into landing, Bronze, Silver and Gold layers.
 - **Ingestion**: write-once, checksum-verified landing of source files, orchestrated by **Airflow**.
@@ -20,10 +21,9 @@ An Airflow task uploads the CSV files to a Unity Catalog volume, one write-once 
 
 - **Data Sources**: two source systems (CRM and ERP) delivered as CSV files.
 - **Raw data is never changed**: landed files are immutable; corrections arrive as new batches.
-- **Reruns are safe**: every stage is idempotent, so retries and backfills never duplicate data.
+- **Reruns are safe**: the same batch is never loaded twice, and Silver deduplicates repeated deliveries.
 - **Data Quality**: data quality issues are resolved in Silver, and tests stop bad data from reaching Gold.
-- **Scope**: latest-state analytics; historisation is not required.
-
+- **Scope**: Customers are current-state; products keep version history for point-in-time sales analysis.
 
 ## Data Pipeline
 
@@ -60,18 +60,14 @@ Verified by landing the same files for 2026-10-21 and 2026-10-22: Bronze doubled
 
 - **Purpose**: move source files into the platform without changing them, and record what arrived.
 - **Code**: `src/lakehouse/landing/load_volume.py`, run by the `land_files` task in `airflow/dags/lakehouse_ingest.py`.
-- **Architectural decisions**: [Landing layer architectural decisions](assets/docs/arch_logic_landing.md) for details.
+- **Architectural decisions**: [Landing layer architectural decisions](assets/docs/arch_logic_landing.md)
 
-```bash
-uv run python -m unittest discover tests
-```
-
-Tests use in-memory and temp-folder fakes, so they need no Databricks access.
 
 ### Bronze (Raw Tables)
 
 - **Code**: `src/lakehouse/bronze/load_bronze.py`, run as the `load_bronze` wheel task in `resources/lakehouse_pipeline.job.yml`.
-- **Architectural decisions**: [Bronze layer architectural decisions](assets/docs/arch_logic_bronze.md) for details.
+- **Architectural decisions**: [Bronze layer architectural decisions](assets/docs/arch_logic_bronze.md)
+- **Tests**: `uv run python -m unittest discover tests`
 
 Trade-off: with daily full-snapshot deliveries, Bronze grows by one full copy per day (FinOps: cents per month at this volume of data).
 Planned fix: once the DAG runs on a schedule, skip files at landing whose checksum matches the previous batch and record them as `unchanged` in the manifest.
@@ -103,7 +99,7 @@ Planned fix: once the DAG runs on a schedule, skip files at landing whose checks
 - **Code**: `dbt/models/gold/`, run as the `load_gold` dbt task (`dbt build --select path:models/gold`) after `load_silver`.
 - **Architectural decisions**: [Gold layer architectural decisions](assets/docs/arch_logic_gold.md)
 
-| Model | Grain | Key | Notes | Expected rows |
+| Model | Grain | Key | Notes | Rows |
 |-------|-------|-----|-------|---------------|
 | `dim_customers` | One row per customer | `customer_sk = xxhash64(customer_id)` | CRM master; ERP birth date, country, and gender fallback | 18,484 |
 | `dim_products` | One row per product version | `product_sk = xxhash64(product_id)` | `valid_from` / `valid_to` for point-in-time joins; unknown member `-1` | 398 (397 + unknown) |
@@ -119,11 +115,10 @@ Planned fix: once the DAG runs on a schedule, skip files at landing whose checks
 | `dim_products_no_overlapping_versions` | The cause of fan-out: two versions of a product valid on the same day |
 | `fact_sales_unknown_product_only_without_date` | The unknown product being used for a sale that has a valid date (a missing version) |
 
-**Known gap**: Gold views read Silver tables directly, so data that fails a Silver test is visible through Gold until fixed (the job fails and alerts).
+**Known gap**: dbt builds a Silver table before testing it, and Gold views read Silver directly, so data that fails a Silver test is visible through Gold until it is fixed. The job fails and Airflow goes red, so the failure is seen, but consumers aren't protected.
 
-**Planned Fix(Write, Audit, Publish)**: dbt builds a Silver table before testing it, and Gold views read Silver directly, so data that fails a Silver test is visible through Gold until it is fixed. The job fails and Airflow goes red, so the failure is seen, but consumers aren't protected.
-
-Chosen approach for when this is built: an **audit run, then a production run**. The dbt task first builds every layer into `*_audit` schemas with `--vars '{audit: true}'` (a `generate_schema_name` switch) and runs every test; only if all pass does a second command rebuild the real `silver` and `gold` schemas. Consumers get no access to the audit schemas. Cost: transformations run twice, which is seconds at this volume. At larger scale, publishing version-pinned views (`VERSION AS OF`) of the audited tables avoids the second run.
+**Planned Fix**: Write, Audit, Publish (WAP) pattern.
+The dbt task first builds every layer into `*_audit` schemas with `--vars '{audit: true}'` (a `generate_schema_name` switch) and runs every test; only if all pass does a second command rebuild the real `silver` and `gold` schemas. Consumers get no access to the audit schemas. Cost: transformations run twice, which is seconds at this volume. At larger scale, publishing version-pinned views (`VERSION AS OF`) of the audited tables avoids the second run.
 
 ---
 
