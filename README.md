@@ -1,6 +1,8 @@
 # Lakehouse Project (Databricks)
 
-This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-kiti/warehouse-project-local) as a lakehouse on Databricks, using the Medallion Architecture. Airflow lands source files in an immutable volume, and a Lakeflow job loads them into Bronze and runs the dbt transformations for Silver and Gold.
+This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-kiti/warehouse-project-local) as a lakehouse on Databricks, using the Medallion Architecture.
+
+An Airflow task uploads the CSV files to a Unity Catalog volume, one write-once folder per source per ingest date, with a checksum manifest written last, then triggers the Lakeflow job by name, passing the ingest date, and waits for it to finish. The Lakeflow job verifies each manifest, then loads the files into Bronze with `COPY INTO`, unchanged apart from ingestion metadata. dbt transforms the data and runs tests on Silver before building the Gold layer. The Gold layer is a star schema (views) with point-in-time products and CRM-mastered customers.
 
 ## Overview
 
@@ -22,17 +24,14 @@ This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-
 - **Data Quality**: data quality issues are resolved in Silver, and tests stop bad data from reaching Gold.
 - **Scope**: latest-state analytics; historisation is not required.
 
-1. **Landing**: an Airflow task uploads the CSV files to a Unity Catalog volume, one write-once folder per source per ingest date, with a checksum manifest written last.
-2. **Hand-off**: Airflow triggers the Lakeflow job by name, passing the ingest date, and waits for it to finish.
-3. **Bronze**: the job verifies each manifest, then loads the files into Delta tables with `COPY INTO`, unchanged apart from ingestion metadata.
-4. **Silver**: dbt deduplicates, trims, standardises and types the data. Tests must pass before Gold builds.
-5. **Gold**: dbt models a star schema (views): point-in-time products, CRM-mastered customers.
-
----
 
 ## Data Pipeline
 
-### Immutability
+### Immutability & Idempotency
+
+Idempotency (safe reruns) and immutability (unchangeable raw data) are separate guarantees the pipeline needs.
+
+#### Immutability
 
 Raw data is protected in layers, from who can write to how storage behaves:
 
@@ -43,8 +42,19 @@ Raw data is protected in layers, from who can write to how storage behaves:
 | 3. Bronze tables | `delta.appendOnly = true` on every Bronze table: `INSERT` and `COPY INTO` work; `UPDATE`, `DELETE` and row-changing `MERGE` are refused | ✅ Implemented (set at table creation in `load_bronze`) |
 | 4. Storage | A bucket retention policy (S3 Object Lock, GCS retention, Azure immutable blobs) prevents changes or deletion for a set period | Requires an external volume; not available on managed storage |
 
-Idempotency (safe reruns) and immutability (unchangeable raw data) are both separate guarantees needed by the pipeline.
+#### Idempotency
 
+Each layer is idempotent within its own scope:
+
+| Mechanism | Idempotent per | Same date again | Identical file on a new date |
+|-----------|----------------|-----------------|------------------------------|
+| Manifest + checksums (landing) | Ingest date | Skipped | Landed again (new folder) |
+| `COPY INTO` (Bronze) | File path | 0 rows inserted | Loaded again (new path) |
+| Key-based dedup (Silver) | Business key | No change | No change |
+
+Verified by landing the same files for 2026-10-21 and 2026-10-22: Bronze doubled (`crm_cust_info`: 36,988 rows, 18,494 distinct `_row_hash`) while Silver stayed at 18,484 customers. Bronze records that the source sent the same content twice, and Silver holds one correct current state.
+
+---
 
 ### Landing (Ingestion)
 
@@ -63,17 +73,8 @@ Tests use in-memory and temp-folder fakes, so they need no Databricks access.
 - **Code**: `src/lakehouse/bronze/load_bronze.py`, run as the `load_bronze` wheel task in `resources/lakehouse_pipeline.job.yml`.
 - **Architectural decisions**: [Bronze layer architectural decisions](assets/docs/arch_logic_bronze.md) for details.
 
-**Idempotency scope** Each layer is idempotent within its own scope:
-
-| Mechanism | Idempotent per | Same date again | Identical file on a new date |
-|-----------|----------------|-----------------|------------------------------|
-| Manifest + checksums (landing) | Ingest date | Skipped | Landed again (new folder) |
-| `COPY INTO` (Bronze) | File path | 0 rows inserted | Loaded again (new path) |
-| Key-based dedup (Silver) | Business key | No change | No change |
-
-Verified by landing the same files for 2026-10-21 and 2026-10-22: Bronze doubled (`crm_cust_info`: 36,988 rows, 18,494 distinct `_row_hash`) while Silver stayed at 18,484 customers. Bronze faithfully records that the source sent the same content twice; Silver turns it into one correct current state.
-
-Trade-off: with daily full-snapshot deliveries, Bronze grows by one full copy per day (cents per month at this volume). The planned fix, once the DAG runs on a schedule, is to skip files at landing whose checksum matches the previous batch and record them as `unchanged` in the manifest.
+Trade-off: with daily full-snapshot deliveries, Bronze grows by one full copy per day (FinOps: cents per month at this volume of data). 
+The planned fix: once the DAG runs on a schedule, skip files at landing whose checksum matches the previous batch and record them as `unchanged` in the manifest.
 
 ### Silver (Cleansing & Standardisation)
 
