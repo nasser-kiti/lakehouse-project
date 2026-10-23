@@ -23,7 +23,7 @@ resources:
             project_directory: ../dbt
             source: WORKSPACE
             warehouse_id: "${var.warehouse_id}"
-            catalog: bara_datacamp
+            catalog: lakehouse_one
             schema: silver
             commands:
               - "dbt build --select source:bronze path:models/silver"
@@ -36,7 +36,7 @@ resources:
             project_directory: ../dbt
             source: WORKSPACE
             warehouse_id: ${var.warehouse_id}
-            catalog: bara_datacamp
+            catalog: lakehouse_one
             schema: gold
             commands:
               - "dbt build --select path:models/gold"

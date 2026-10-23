@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: bronze
-    database: bara_datacamp
+    database: lakehouse_one
     schema: bronze
     description: >
       Raw data loaded by load_bronze (COPY INTO) from the immutable landing volume.

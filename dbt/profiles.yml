@@ -1,7 +1,7 @@
 lakehouse:
   outputs:
     dev:
-      catalog: bara_datacamp
+      catalog: lakehouse_one
       host: "{{ env_var('DATABRICKS_HOST') }}"
       http_path: "{{ env_var('DATABRICKS_HTTP_PATH') }}"
       schema: dev_nasser
