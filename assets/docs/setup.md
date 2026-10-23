@@ -42,7 +42,7 @@
 3. **Create the landing volume** (Databricks SQL)
 
    ```sql
-   CREATE VOLUME IF NOT EXISTS bara_datacamp.landing.raw;
+   CREATE VOLUME IF NOT EXISTS lakehouse_one.landing.raw;
    ```
 
 4. **Deploy the Lakeflow job**

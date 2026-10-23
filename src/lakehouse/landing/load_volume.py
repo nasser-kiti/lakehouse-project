@@ -33,7 +33,7 @@ from lakehouse.utils.source_config import ConfigManager, SourceConfig
 
 logger = get_logger('Landing Layer')
 
-CATALOG = os.getenv("LAKEHOUSE_CATALOG", "bara_datacamp")
+CATALOG = os.getenv("LAKEHOUSE_CATALOG", "lakehouse_one")
 
 
 CONFIG_PATH = Path(__file__).with_name("data_sources.yaml")
@@ -83,7 +83,8 @@ class DataLoader:
             logger.warning("No sources found in configuration.")
             return []
 
-        logger.info(f"Retrieved {len(sources)} sources from configuration: ({', '.join([source.name for source in sources])})")
+        logger.info(
+            f"Retrieved {len(sources)} sources from configuration: ({', '.join([source.name for source in sources])})")
         return sources
 
     def upload_to_volume(self, ingest_date: date) -> list[dict]:
