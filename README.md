@@ -1,6 +1,7 @@
 # Lakehouse Project (Databricks)
 
 This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-kiti/warehouse-project-local) as a lakehouse on Databricks, using the Medallion Architecture.
+
 **Stack**: Python, uv, Databricks(Unity Catalog, Delta Lake, Lakeflow Jobs, Asset Bundles), Airflow 3, dbt
 
 ## Overview
