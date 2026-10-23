@@ -12,7 +12,7 @@ This project rebuilds the [SQL Server data warehouse](https://github.com/nasser-
 
 ## Data Architecture
 
-![Data architecture diagram](assets/images/image.png)
+![Data architecture diagram](assets/images/arch_diagram.png)
 
 ### Specifications
 
